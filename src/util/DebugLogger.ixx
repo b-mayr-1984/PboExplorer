@@ -5,7 +5,7 @@ module;
 #include <shlobj.h>
 #include <Shlwapi.h>
 #include <inspectable.h>
-
+#include <thumbcache.h>
 
 
 #ifdef ENABLE_SENTRY
@@ -41,11 +41,13 @@ public:
     static void TraceLog(const std::string& message, const std::source_location location, const char* funcName);
     static void TraceLog(const std::wstring& message, const std::source_location location, const char* funcName);
     static void WarnLog(const std::string& message, const std::source_location location, const char* funcName);
+    static void AddBreadcrumb(const std::string& message, const std::source_location location, const char* funcName);
 
     static void CaptureException(std::exception& exception, std::map<std::string, std::string> attributes = {});
 
     static bool IsIIDUninteresting(const GUID& riid);
     static LookupInfoT GetGUIDName(const GUID& guid);
+    static std::string GetGUIDRawName(const GUID& guid); // Converts the GUID into string of numbers
 };
 
 
@@ -143,6 +145,7 @@ static GUIDLookup<LookupInfoStorageT> guidLookupTable{
 
         LookupFromText("IID_Unknown_1", L"{93F81976-6A0D-42C3-94DD-AA258A155470}", DebugInterestLevel::NotInterested),
         LookupFromText("IID_Unknown_2", L"{CAD9AE9F-56E2-40F1-AFB6-3813E320DCFD}", DebugInterestLevel::NotInterested),
+        LookupFromText("IID_Unknown_3", L"{C3933843-C24B-45A2-8298-B462F59DAAF}", DebugInterestLevel::NotInterested),
 
 
         // ObjIdl.h
@@ -587,7 +590,9 @@ static GUIDLookup<LookupInfoStorageT> guidLookupTable{
         LookupFromType<IEnumACString>(),
         LookupFromType<IDataObjectAsyncCapability>(),
 
-
+        // thumbcache.h
+        LookupFromType<IThumbnailProvider>(),
+        LookupFromType<IThumbnailSettings>(),
 
         // Unknwnbase.h
         LookupFromType<AsyncIUnknown>(),
@@ -616,6 +621,10 @@ static GUIDLookup<LookupInfoStorageT> guidLookupTable{
         LookupFromText("IID_Unknown_17", L"{4C1E39E1-E3E3-4296-AA86-EC938D896E92}", DebugInterestLevel::NotInterested), // This is an MMC private interface used to support property sheets in a managed(MCF) snap - in. https://microsoft.public.management.mmc.narkive.com/YqDkkOuN/queried-for-4c1e39e1-e3e3-4296-aa86-ec938d896e92-interface
         LookupFromText("IID_Unknown_18", L"{6C72B11B-DBE0-4C87-B1A8-7C8A36BD563D}", DebugInterestLevel::NotInterested),
         LookupFromText("IID_Unknown_19", L"{E0EECF93-8B48-44AF-A377-07852487B85C}", DebugInterestLevel::NotInterested),
+        LookupFromText("IID_Unknown_20", L"{A914F499-4633-4B26-A93E-707EB5BDC0B6}", DebugInterestLevel::NotInterested),
+        LookupFromText("IID_Unknown_21", L"{DA807A0B-DD2B-452B-A390-D79C351B6D8D}", DebugInterestLevel::NotInterested),
+        LookupFromText("IID_Unknown_22", L"{F93F9470-36A7-4A92-AFDB-AED751464F32}", DebugInterestLevel::NotInterested),
+        LookupFromText("IID_Unknown_23", L"{A8E312A2-2E49-4FFC-8EF8-AEBA1F727C76}", DebugInterestLevel::NotInterested),
 
         // https://gist.github.com/olafhartong/980e9cd51925ff06a5a3fdfb24fb96c2
 
@@ -628,13 +637,16 @@ static GUIDLookup<LookupInfoStorageT> guidLookupTable{
         LookupFromText("IID_IPropertyStoreFactory", L"{BC110B6D-57E8-4148-A9C6-91015AB2F3A5}"),
         LookupFromText("IID_IPropertyStore", L"{886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99}"), // https://www.pinvoke.net/default.aspx/Interfaces/IPropertyStore.html
 
+
         LookupFromType<IInspectable>(DebugInterestLevel::NotInterested),
         LookupFromType<IQueryAssociations>(),
 
         LookupFromText("IID_IDataObject", L"{3CEE8CC1-1ADB-327F-9B97-7A9C8089BFB3}"), // https://microsoft.public.platformsdk.shell.narkive.com/t6GVO0vR/sendmail-in-xp
         LookupFromText("IID_IViewResultRelatedItem", L"{50BC72DA-9633-47CB-80AC-727661FB9B9F}", DebugInterestLevel::NotInterested),
         LookupFromText("IID_IFolderViewCapabilities", L"{7B88EA95-1C91-42AA-BAE5-6D730CBEC794}", DebugInterestLevel::NotInterested),
-
+        LookupFromText("CIconAndThumbnailOplockWrapper", L"{2968087C-7490-430F-BB8B-2156610D825A}", DebugInterestLevel::NotInterested),
+        LookupFromText("IFilter", L"{89BCB740-6119-101A-BCB7-00DD010655AF}", DebugInterestLevel::NotInterested), //#TODO https://learn.microsoft.com/en-us/windows/win32/search/-search-ifilter-registering-filters
+        LookupFromText("IID_IObjectWithShellItem", L"{1D3DB207-7AD5-4376-AD5B-56474FA7CC68}", DebugInterestLevel::NotInterested),
 
         // general ref https://gist.github.com/invokethreatguy/b2482f4204d2e71dcb5f9a081ccf7baf
     // https://www.magnumdb.com/search?q=value%3A%227b88ea95-1c91-42aa-bae5-6d730cbec794%22
@@ -649,8 +661,61 @@ std::string GetDebugLogName() {
     return std::filesystem::path(fname).filename().string();
 }
 
+#if _DEBUG
+#define LOGFILE 1
+#else
+#define LOGFILE 0
+#endif
+
+#if LOGFILE
 std::ofstream logFile = std::ofstream(std::format("P:\\PboEx_{}.log", GetDebugLogName()), std::ofstream::app | std::ofstream::out);
 std::ofstream logFileBad = std::ofstream(std::format("P:\\PboEx_{}_Bad.log", GetDebugLogName()), std::ofstream::app | std::ofstream::out);
+#endif
+
+void PrintMainLog(const std::string& prnt)
+{
+#if LOGFILE
+    logFile.write(prnt.c_str(), prnt.length());
+    logFile.flush();
+#endif
+
+#if _DEBUG
+    OutputDebugStringA(prnt.c_str());
+#endif
+}
+
+void PrintBadLog(const std::string& prnt)
+{
+#if LOGFILE
+    logFileBad.write(prnt.c_str(), prnt.length());
+    logFileBad.flush();
+#endif
+}
+
+template <class... _Types>
+void FormatPrintMainLog(const std::format_string<_Types...> _Fmt, _Types&&... _Args)
+{
+#if LOGFILE || defined(_DEBUG)
+    auto prnt = std::format(_Fmt, std::forward<_Types>(_Args)...);
+    PrintMainLog(prnt);
+#endif
+}
+
+template <class... _Types>
+void FormatPrintMainLogNoFlush(const std::format_string<_Types...> _Fmt, _Types&&... _Args)
+{
+#if LOGFILE || defined(_DEBUG)
+    auto prnt = std::format(_Fmt, std::forward<_Types>(_Args)...);
+#endif
+
+#if LOGFILE
+    logFile.write(prnt.c_str(), prnt.length());
+#endif
+
+#if _DEBUG
+    OutputDebugStringA(prnt.c_str());
+#endif
+}
 
 void DebugLogger::OnQueryInterfaceEntry(const GUID& riid, const std::source_location location, const char* funcName)
 {
@@ -658,31 +723,23 @@ void DebugLogger::OnQueryInterfaceEntry(const GUID& riid, const std::source_loca
     if (guidName.second == DebugInterestLevel::NotInterested)
         return;
 
-    auto prnt = std::format("[{:%T}] Trace - {} - {}\n", std::chrono::system_clock::now(), funcName, guidName.first);
-    OutputDebugStringA(prnt.c_str());
-    //logFile.write(prnt.c_str(), prnt.length());
+    FormatPrintMainLogNoFlush("[{:%T}] Trace - {} - {}\n", std::chrono::system_clock::now(), funcName, guidName.first);
 }
-
-
 
 void DebugLogger::OnQueryInterfaceExitUnhandled(const GUID& riid, const std::source_location location, const char* funcName)
 {
     auto guidName = GetGUIDName(riid);
-    auto prnt = std::format("[{:%T}] Unimplemented GUID - {} - {}\n", std::chrono::system_clock::now(), funcName, guidName.first);
     if (guidName.second == DebugInterestLevel::NotInterested)
         return;
 
-    OutputDebugStringA(prnt.c_str());
-    logFile.write(prnt.c_str(), prnt.length());
-    logFile.flush();
+    auto prnt = std::format("[{:%T}] Unimplemented GUID - {} - {}\n", std::chrono::system_clock::now(), funcName, guidName.first);
 
+    PrintMainLog(prnt);
     if (guidName.second == DebugInterestLevel::Interested) {
-        logFileBad.write(prnt.c_str(), prnt.length());
-        logFileBad.flush();
-
+        PrintBadLog(prnt);
 
 #ifdef ENABLE_SENTRY
-        prnt = std::format("Unimplemented GUID - {} - {}\n", funcName, guidName.first);
+        prnt = std::format("Unimplemented GUID - {} - {} ({})\n", funcName, guidName.first, GetGUIDRawName(riid));
 
         auto event = sentry_value_new_message_event(
             /*   level */ SENTRY_LEVEL_WARNING,
@@ -703,28 +760,20 @@ void DebugLogger::OnQueryInterfaceExitUnhandled(const GUID& riid, const std::sou
 //#TODO take string view
 void DebugLogger::TraceLog(const std::string& message, const std::source_location location, const char* funcName)
 {
-    auto prnt = std::format("[{:%T}] T [{}] - {}\n", std::chrono::system_clock::now(), funcName, message);
-    OutputDebugStringA(prnt.c_str());
-    logFile.write(prnt.c_str(), prnt.length());
-    logFile.flush();
+    FormatPrintMainLog("[{:%T}] T [{}] - {}\n", std::chrono::system_clock::now(), funcName, message);
 }
 
 void DebugLogger::TraceLog(const std::wstring& message, const std::source_location location, const char* funcName)
 {
-    auto prnt = std::format("[{:%T}] T [{}] - {}\n", std::chrono::system_clock::now(), funcName, UTF8::Encode(message));
-    OutputDebugStringA(prnt.c_str());
-    logFile.write(prnt.c_str(), prnt.length());
-    logFile.flush();
+    FormatPrintMainLog("[{:%T}] T [{}] - {}\n", std::chrono::system_clock::now(), funcName, UTF8::Encode(message));
 }
 
 void DebugLogger::WarnLog(const std::string& message, const std::source_location location, const char* funcName)
 {
     auto prnt = std::format("[{:%T}] W [{}] - {}\n", std::chrono::system_clock::now(), funcName, message);
-    OutputDebugStringA(prnt.c_str());
-    logFile.write(prnt.c_str(), prnt.length());
-    logFile.flush();
-    logFileBad.write(prnt.c_str(), prnt.length());
-    logFileBad.flush();
+
+    PrintMainLog(prnt);
+    PrintBadLog(prnt);
 
 #ifdef ENABLE_SENTRY
     prnt = std::format("W [{}] - {}\n", funcName, message);
@@ -740,6 +789,21 @@ void DebugLogger::WarnLog(const std::string& message, const std::source_location
     sentry_event_add_thread(event, thread);
 
     sentry_capture_event(event);
+#endif
+}
+
+void DebugLogger::AddBreadcrumb(const std::string& message, const std::source_location location, const char* funcName) {
+
+#ifdef ENABLE_SENTRY
+    sentry_value_t crumb = sentry_value_new_breadcrumb("default", message.c_str());
+    sentry_value_set_by_key(crumb, "level", sentry_value_new_string("info"));
+
+    sentry_value_t data = sentry_value_new_object();
+    sentry_value_set_by_key(data, "location", sentry_value_new_string(std::format("({}) {}:{}", location.function_name(), location.file_name(), location.line()).c_str()));
+    sentry_value_set_by_key(data, "func", sentry_value_new_string(funcName));
+
+    sentry_value_set_by_key(crumb, "data", data);
+    sentry_add_breadcrumb(crumb);
 #endif
 }
 
@@ -781,23 +845,47 @@ bool DebugLogger::IsIIDUninteresting(const GUID& riid)
     return GetGUIDName(riid).second == DebugInterestLevel::NotInterested;
 }
 
+std::shared_mutex guidLookupMutex;
+
 LookupInfoT DebugLogger::GetGUIDName(const GUID& guid)
 {
-    auto found = guidLookupTable.find(guid);
+    {
+        std::shared_lock lckRead(guidLookupMutex);
+        auto found = guidLookupTable.find(guid);
 
-    if (found != guidLookupTable.end()) {
-        return found->second;
+        if (found != guidLookupTable.end()) {
+            return found->second;
+        }
     }
-    else {
-        wchar_t* guidString;
-        StringFromCLSID(guid, &guidString);
-        auto guidName = UTF8::Encode(guidString);
-        ::CoTaskMemFree(guidString);
+
+    {
+        auto guidName = GetGUIDRawName(guid);
+
+        std::unique_lock lckWrite(guidLookupMutex);
+
+        // Race condition, make sure no-one else inserted this while we were waiting on the lock
+        {
+            auto found = guidLookupTable.find(guid);
+
+            if (found != guidLookupTable.end()) {
+                return found->second;
+            }
+        }
+
 
         // Every entry must be in lookup table, because we return stringview
         auto inserted = guidLookupTable.insert({ guid, { guidName, DebugInterestLevel::Interested } }); // we are very interested in unknown GUIDs
 
         return inserted->second;
     }
+}
+
+std::string DebugLogger::GetGUIDRawName(const GUID& guid) {
+    wchar_t* guidString;
+    StringFromCLSID(guid, &guidString);
+    auto guidName = UTF8::Encode(guidString);
+    ::CoTaskMemFree(guidString);
+
+    return guidName;
 }
 

@@ -7,6 +7,7 @@ import PboPidl;
 import TempDiskFile;
 import ContextMenu;
 import Util;
+import Encoding;
 
 #ifndef SEE_MASK_NOASYNC
 #define SEE_MASK_NOASYNC 0x00000100
@@ -225,7 +226,7 @@ HRESULT PboContextMenu::QueryContextMenu(
     {
         EXPECT_SINGLE_PIDL((PboPidl*)m_apidl[0].GetRef());
 
-        DebugLogger::TraceLog(std::format("file {}", (m_folder->pboFile->GetFolder()->fullPath / ((PboPidl*)m_apidl[0].GetRef())->GetFilePath()).string()), std::source_location::current(), __FUNCTION__);
+        DebugLogger::TraceLog(std::format(L"file {}", (m_folder->pboFile->GetFolder()->fullPath / ((PboPidl*)m_apidl[0].GetRef())->GetFilePath()).wstring()), std::source_location::current(), __FUNCTION__);
 
         InsertMenu(hmenu, indexMenu++, MF_STRING | MF_BYPOSITION,
             idCmdFirst + CONTEXT_OPEN, getContextText(CONTEXT_OPEN));
@@ -307,7 +308,7 @@ HRESULT PboContextMenu::InvokeCommand(LPCMINVOKECOMMANDINFO pici)
     else cmd = LOWORD(pici->lpVerb);
 
     if (cmd < 0 || cmd >= CONTEXT_QTY) {
-        DebugLogger::WarnLog(std::format("NOT IMPLEMENTED COMMAND"), std::source_location::current(), __FUNCTION__);
+        DebugLogger::WarnLog(std::format("NOT IMPLEMENTED COMMAND {}({})", HIWORD(pici->lpVerb) ? pici->lpVerb : "?", LOWORD(pici->lpVerb)), std::source_location::current(), __FUNCTION__);
         return(E_INVALIDARG);
     }
 
@@ -454,7 +455,7 @@ HRESULT PboContextMenu::InvokeCommand(LPCMINVOKECOMMANDINFO pici)
             } catch(std::runtime_error& ex) {
                 DebugLogger::CaptureException(ex, {
                     {"pboFile", m_folder->pboFile->GetPboDiskPath().string()},
-                    {"subfile", (m_folder->pboFile->GetFolder()->fullPath / qp->GetFilePath()).string()}
+                    {"subfile", UTF8::Encode((m_folder->pboFile->GetFolder()->fullPath / qp->GetFilePath()).wstring())}
                 });
 
                 MessageBoxA(0, "Oh no! PboExplorer failed to open this file, most likely you are working with a obfuscated PBO?", "PboExplorer", MB_ICONERROR | MB_APPLMODAL | MB_SETFOREGROUND | MB_TOPMOST);

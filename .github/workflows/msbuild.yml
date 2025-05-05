@@ -100,9 +100,9 @@ jobs:
     #  env:
     #    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
-        name: my-artifact
+        name: my-artifact-${{ matrix.runs-on }}
         path: |
           src/x64/Release/PboExplorer.dll
           src/x64/Release/PboExplorer.pdb
@@ -150,7 +150,8 @@ jobs:
           sentry-cli releases set-commits --auto ${{ steps.date.outputs.DATE_STAMP }}
           sentry-cli releases finalize ${{ steps.date.outputs.DATE_STAMP }}
           
-          sentry-cli upload-dif --include-sources src/x64/Release/
+          sentry-cli upload-dif src/x64/Release/
+          # --include-sources wtf? Suddenly broken? Only google result https://github.com/getsentry/sentry-unreal/issues/542 "file could not be read as UTF-8"
 
       
       # #TODO https://github.com/softprops/action-gh-release/issues/20#issuecomment-1249997598
